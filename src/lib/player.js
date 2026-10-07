@@ -43,6 +43,8 @@ export class Player {
   #speed = 1;
   #state = { ...IDLE_STATE };
   #waitingToStart = false; // the current chunk arrived while paused
+  #queue = []; // synthesis jobs waiting for their turn, in request order
+  #synthesizing = false; // the server handles one request at a time; concurrent ones fail
 
   /** @param {PlayerDeps} deps */
   constructor({ synthesize, createAudio, onState, createObjectURL, revokeObjectURL }) {
@@ -175,22 +177,51 @@ export class Player {
       audio: null,
       disposed: false,
     };
-    entry.promise = this.#synthesize({
+    const args = {
       text: this.#chunks[index],
       voice: this.#voice,
       speed: entry.generatedSpeed,
       serverUrl: this.#serverUrl,
       signal: controller.signal,
-    }).then((blob) => {
-      if (!entry.disposed) entry.url = this.#createObjectURL(blob);
-      return entry;
+    };
+    entry.promise = new Promise((resolve, reject) => {
+      this.#queue.push({ entry, args, resolve, reject });
     });
+    this.#pump();
     // A prefetch may fail long before anyone awaits it; the error surfaces
     // when playback reaches that chunk.
     entry.promise.catch(() => {});
 
     this.#entries.set(index, entry);
     return entry;
+  }
+
+  /** Starts the next queued synthesis unless one is already running. */
+  #pump() {
+    if (this.#synthesizing) return;
+    let job;
+    while ((job = this.#queue.shift())) {
+      if (!job.entry.disposed) break;
+      // Released before its turn: never hit the server, just settle the promise.
+      job.reject(job.entry.controller.signal.reason);
+    }
+    if (!job) return;
+
+    this.#synthesizing = true;
+    this.#run(job).finally(() => {
+      this.#synthesizing = false;
+      this.#pump();
+    });
+  }
+
+  async #run({ entry, args, resolve, reject }) {
+    try {
+      const blob = await this.#synthesize(args);
+      if (!entry.disposed) entry.url = this.#createObjectURL(blob);
+      resolve(entry);
+    } catch (err) {
+      reject(err);
+    }
   }
 
   #prefetchAhead(index) {
