@@ -64,6 +64,12 @@ function setup(overrides = {}) {
   return { player, fetches, audios, states, revoked, serve, last };
 }
 
+/** Serves a request and lets the queue start the next one. */
+async function serveNext(ctx, index) {
+  ctx.serve(index);
+  await tick();
+}
+
 /** Plays TEXT and gets chunk 0 audible. */
 async function startPlaying(ctx, opts = OPTS) {
   ctx.player.play(TEXT, opts);
@@ -83,7 +89,7 @@ test("play requests the first chunk and reports LOADING", () => {
   assert.deepEqual(ctx.last(), { status: STATUS.LOADING, index: 0, total: 5, error: null });
 });
 
-test("playback starts when the first chunk arrives and the next two are prefetched", async () => {
+test("playback starts when the first chunk arrives and the next two are prefetched one at a time", async () => {
   const ctx = setup();
   await startPlaying(ctx);
 
@@ -93,6 +99,14 @@ test("playback starts when the first chunk arrives and the next two are prefetch
   assert.deepEqual(ctx.last(), { status: STATUS.PLAYING, index: 0, total: 5, error: null });
   assert.deepEqual(
     ctx.fetches.map((f) => f.text),
+    ["One.", "Two."],
+    "the second prefetch waits for the first to finish",
+  );
+
+  ctx.serve(1);
+  await tick();
+  assert.deepEqual(
+    ctx.fetches.map((f) => f.text),
     ["One.", "Two.", "Three."],
   );
 });
@@ -100,9 +114,8 @@ test("playback starts when the first chunk arrives and the next two are prefetch
 test("a finished chunk advances to the next and keeps the prefetch window full", async () => {
   const ctx = setup();
   await startPlaying(ctx);
-  ctx.serve(1);
-  ctx.serve(2);
-  await tick();
+  await serveNext(ctx, 1);
+  await serveNext(ctx, 2);
 
   ctx.audios[0].finish();
   await tick();
@@ -156,7 +169,7 @@ test("startIndex begins reading from that chunk", async () => {
   assert.equal(ctx.last().index, 2);
   assert.deepEqual(
     ctx.fetches.map((f) => f.text),
-    ["Three.", "Four.", "Five."],
+    ["Three.", "Four."],
   );
 });
 
@@ -187,9 +200,8 @@ test("speeds inside the server range need no playbackRate", async () => {
 test("setSpeed retunes the current chunk, prefetched chunks and new fetches", async () => {
   const ctx = setup();
   await startPlaying(ctx); // generated at speed 1
-  ctx.serve(1);
-  ctx.serve(2);
-  await tick();
+  await serveNext(ctx, 1);
+  await serveNext(ctx, 2);
 
   ctx.player.setSpeed(1.5);
   assert.equal(ctx.audios[0].playbackRate, 1.5, "current chunk changes instantly");
@@ -213,9 +225,8 @@ test("setSpeed clamps to the UI range", async () => {
 test("a chunk generated at the new speed plays at rate 1", async () => {
   const ctx = setup();
   await startPlaying(ctx);
-  ctx.serve(1);
-  ctx.serve(2);
-  await tick();
+  await serveNext(ctx, 1);
+  await serveNext(ctx, 2);
 
   ctx.player.setSpeed(1.5);
   ctx.audios[0].finish(); // chunk 1 plays; chunk 3 is requested at 1.5
@@ -320,6 +331,7 @@ test("playing again replaces the previous reading", async () => {
   const firstSignal = ctx.fetches[1].signal;
 
   ctx.player.play("Fresh start.", OPTS);
+  await tick();
 
   assert.equal(firstSignal.aborted, true);
   assert.equal(ctx.audios[0].pauseCalls, 1);
@@ -342,7 +354,7 @@ test("a server failure reports ERROR with the message and stops everything", asy
     total: 5,
     error: "Cannot reach the Kokoro server. Is it running?",
   });
-  assert.equal(ctx.fetches[2].signal.aborted, true);
+  assert.equal(ctx.fetches.length, 2, "the queued prefetch is dropped instead of reaching the server");
 });
 
 test("an audio element error reports ERROR", async () => {
@@ -383,4 +395,43 @@ test("getState returns a snapshot of the current state", async () => {
   assert.deepEqual(snapshot, { status: STATUS.PLAYING, index: 0, total: 5, error: null });
   snapshot.status = "tampered";
   assert.equal(ctx.player.getState().status, STATUS.PLAYING);
+});
+
+test("never has more than one synthesis request in flight", async () => {
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const requested = [];
+  const ctx = setup({
+    synthesize: async ({ text }) => {
+      requested.push(text);
+      maxInFlight = Math.max(maxInFlight, ++inFlight);
+      await tick();
+      inFlight--;
+      return new Blob([text]);
+    },
+  });
+
+  ctx.player.play(TEXT, OPTS);
+  for (let i = 0; i < 10; i++) await tick();
+
+  assert.deepEqual(requested, ["One.", "Two.", "Three."], "prefetch still runs, in index order");
+  assert.equal(maxInFlight, 1);
+});
+
+test("an entry disposed before its turn is never synthesized and does not block the queue", async () => {
+  const ctx = setup();
+  await startPlaying(ctx); // One. is playing, Two. is in flight, Three. is queued
+  assert.deepEqual(
+    ctx.fetches.map((f) => f.text),
+    ["One.", "Two."],
+  );
+
+  ctx.player.stop(); // aborts Two., disposes the queued Three.
+  await tick();
+  assert.equal(ctx.fetches.length, 2, "the queued entry never reaches synthesize");
+
+  ctx.player.play("Fresh start.", OPTS);
+  await tick();
+  assert.equal(ctx.fetches.at(-1).text, "Fresh start.");
+  assert.equal(ctx.fetches.length, 3);
 });
