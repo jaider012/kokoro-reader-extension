@@ -30,8 +30,11 @@ async function ensureOffscreenDocument() {
   creatingOffscreen ??= chrome.offscreen
     .createDocument({
       url: OFFSCREEN_URL,
-      reasons: ["AUDIO_PLAYBACK"],
-      justification: "Play synthesized speech while the popup is closed.",
+      // AUDIO_PLAYBACK alone lets Chrome close the document after 30 s it does
+      // not consider audible (observed mid-reading in Playwright). BLOBS has no
+      // such limit, and the player really does use URL.createObjectURL.
+      reasons: ["AUDIO_PLAYBACK", "BLOBS"],
+      justification: "Play synthesized speech (held as blob URLs) while the popup is closed.",
     })
     .finally(() => {
       creatingOffscreen = null;
