@@ -1,0 +1,10 @@
+{
+  "name": "kokoro-reader-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chrome extension that reads text aloud with a local Kokoro TTS server.",
+  "scripts": {
+    "test": "node --test"
+  }
+}
