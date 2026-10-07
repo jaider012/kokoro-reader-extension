@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Kokoro Reader</title>
+    <link rel="stylesheet" href="popup.css" />
+    <script type="module" src="popup.js"></script>
+  </head>
+  <body>
+    <main class="popup">
+      <header class="header">
+        <h1 class="title">Kokoro Reader</h1>
+        <span class="server" id="server" data-state="checking">
+          <span class="server-dot" aria-hidden="true"></span>
+          <span id="server-text">Checking…</span>
+        </span>
+      </header>
+
+      <p class="hint" id="server-hint" hidden>
+        Can't reach the Kokoro server. Start it, then reopen this popup.
+      </p>
+
+      <section class="player" aria-label="Playback">
+        <button type="button" class="btn-primary" id="primary" data-action="read">
+          <svg class="icon icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" /></svg>
+          <svg class="icon icon-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
+          <span id="primary-label">Read</span>
+        </button>
+        <button type="button" class="btn-stop" id="stop" aria-label="Stop" title="Stop" disabled>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+        </button>
+      </section>
+
+      <div class="status">
+        <p class="status-label" id="status" aria-live="polite">Ready</p>
+        <span class="status-count" id="progress-text"></span>
+      </div>
+      <progress class="progress" id="progress" max="1" value="0" aria-label="Reading progress"></progress>
+      <p class="error" id="error" role="alert" hidden></p>
+
+      <section class="controls" aria-label="Settings">
+        <div class="field">
+          <div class="field-head">
+            <label for="speed">Speed</label>
+            <output id="speed-value" for="speed">1×</output>
+          </div>
+          <input type="range" id="speed" />
+          <div class="chips" id="chips" role="group" aria-label="Speed presets"></div>
+        </div>
+
+        <div class="field">
+          <label for="voice">Voice</label>
+          <select id="voice"></select>
+        </div>
+      </section>
+
+      <details class="paste">
+        <summary>Paste text</summary>
+        <label for="paste-text" class="visually-hidden">Text to read</label>
+        <textarea id="paste-text" rows="4" placeholder="Paste or type text to read aloud"></textarea>
+        <button type="button" class="btn-secondary" id="read-text">Read text</button>
+      </details>
+    </main>
+  </body>
+</html>
